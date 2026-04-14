@@ -30,7 +30,18 @@ def _ensure_api_key():
             from viraai_react_demo import ViraAIConfig
             ANTHROPIC_API_KEY = ViraAIConfig.ANTHROPIC_API_KEY
         except (ImportError, AttributeError):
-            ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+            pass
+            
+    # Final Streamlit secrets fallback
+    if not ANTHROPIC_API_KEY:
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets") and "ANTHROPIC_API_KEY" in st.secrets:
+                ANTHROPIC_API_KEY = str(st.secrets["ANTHROPIC_API_KEY"]).strip()
+            else:
+                ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        except:
+            ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
 
 import anthropic
 

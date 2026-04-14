@@ -30,9 +30,13 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, ValidationError
 
+import streamlit as st
+ANTHROPIC_API_KEY = st.secrets["ANTHROPIC_API_KEY"]
+
 # Anthropic (Claude) imports
 try:
     import anthropic
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     ANTHROPIC_AVAILABLE = True
 except ImportError:
     ANTHROPIC_AVAILABLE = False
@@ -58,15 +62,15 @@ class ViraAIConfig:
     PROVIDER = os.getenv("VIRAAI_PROVIDER", "claude")
     
     # Claude/Anthropic configuration
-    _DEFAULT_KEY = "" # Removed hardcoded key
+    _DEFAULT_KEY = ""
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", _DEFAULT_KEY)
     
-    # Try to load from streamlit secrets if available
+    # Try to load from streamlit secrets if available (Streamlit Cloud priority)
     try:
         import streamlit as st
-        if "ANTHROPIC_API_KEY" in st.secrets:
-            ANTHROPIC_API_KEY = st.secrets["ANTHROPIC_API_KEY"]
-    except:
+        if hasattr(st, "secrets") and "ANTHROPIC_API_KEY" in st.secrets:
+            ANTHROPIC_API_KEY = str(st.secrets["ANTHROPIC_API_KEY"]).strip()
+    except Exception:
         pass
 
     CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-4-6")
@@ -708,14 +712,14 @@ class CourseVectorStore:
 
     # Vector Database API configuration
     VECTOR_API_URL = "http://service.careervira.com/vector/v0/search"
-    VECTOR_API_KEY = os.getenv("VECTOR_API_KEY", "") # Removed hardcoded key
+    VECTOR_API_KEY = os.getenv("VECTOR_API_KEY", "").strip()
     
     # Try to load from streamlit secrets if available
     try:
         import streamlit as st
-        if "VECTOR_API_KEY" in st.secrets:
-            VECTOR_API_KEY = st.secrets["VECTOR_API_KEY"]
-    except:
+        if hasattr(st, "secrets") and "VECTOR_API_KEY" in st.secrets:
+            VECTOR_API_KEY = str(st.secrets["VECTOR_API_KEY"]).strip()
+    except Exception:
         pass
 
     VECTOR_API_COLLECTION = "courses_all"

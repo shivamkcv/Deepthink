@@ -1,0 +1,8 @@
+streamlit
+anthropic
+pydantic
+requests
+sentence-transformers
+torch
+numpy
+httpx

@@ -706,21 +706,11 @@ class CourseVectorStore:
 
     # Vector Database API configuration
     VECTOR_API_URL = "http://service.careervira.com/vector/v0/search"
-    VECTOR_API_KEY = "" # Dynamically set in __init__
+    VECTOR_API_KEY = "api_vecToR#3" 
     VECTOR_API_COLLECTION = "courses_all"
 
     def __init__(self):
         self.available = True  # Always available via Vector DB API
-        
-        # Resolve key dynamically for runtime flexibility
-        key = os.getenv("VECTOR_API_KEY", "").strip()
-        try:
-            import streamlit as st
-            if hasattr(st, "secrets") and "VECTOR_API_KEY" in st.secrets:
-                key = str(st.secrets["VECTOR_API_KEY"]).strip()
-        except:
-            pass
-        self.VECTOR_API_KEY = key
         
         # [CACHE] Per-query model cache
         self._model_cache = {}

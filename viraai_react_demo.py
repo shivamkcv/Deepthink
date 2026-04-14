@@ -705,8 +705,8 @@ class CourseVectorStore:
     """
 
     # Vector Database API configuration
-    VECTOR_API_URL = "http://service.careervira.com/vector/v0/search"
-    VECTOR_API_KEY = "api_vecToR#3" 
+    VECTOR_API_URL = "http://43.204.221.112/vector/v0/search"
+    VECTOR_API_KEY = "api_vecToR#3"
     VECTOR_API_COLLECTION = "courses_all"
 
     def __init__(self):
@@ -1026,7 +1026,7 @@ Respond with ONLY a number between 0.0 and 1.0:
                 self.VECTOR_API_URL,
                 headers={
                     "Content-Type": "application/json",
-                    "X-API-Key": self.VECTOR_API_KEY,
+                    "X-API-Key": self.VECTOR_API_KEY.strip(),
                 },
                 json={
                     "collection": self.VECTOR_API_COLLECTION,

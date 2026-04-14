@@ -30,13 +30,9 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, ValidationError
 
-import streamlit as st
-ANTHROPIC_API_KEY = st.secrets["ANTHROPIC_API_KEY"]
-
 # Anthropic (Claude) imports
 try:
     import anthropic
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     ANTHROPIC_AVAILABLE = True
 except ImportError:
     ANTHROPIC_AVAILABLE = False
@@ -62,17 +58,15 @@ class ViraAIConfig:
     PROVIDER = os.getenv("VIRAAI_PROVIDER", "claude")
     
     # Claude/Anthropic configuration
-    _DEFAULT_KEY = ""
-    ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", _DEFAULT_KEY)
+    ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "").strip()
     
-    # Try to load from streamlit secrets if available (Streamlit Cloud priority)
+    # Try dynamic load (Streamlit Cloud priority)
     try:
         import streamlit as st
         if hasattr(st, "secrets") and "ANTHROPIC_API_KEY" in st.secrets:
             ANTHROPIC_API_KEY = str(st.secrets["ANTHROPIC_API_KEY"]).strip()
-    except Exception:
+    except:
         pass
-
     CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-opus-4-6")
     MODEL_NAME = CLAUDE_MODEL
 
@@ -712,20 +706,21 @@ class CourseVectorStore:
 
     # Vector Database API configuration
     VECTOR_API_URL = "http://service.careervira.com/vector/v0/search"
-    VECTOR_API_KEY = os.getenv("VECTOR_API_KEY", "").strip()
-    
-    # Try to load from streamlit secrets if available
-    try:
-        import streamlit as st
-        if hasattr(st, "secrets") and "VECTOR_API_KEY" in st.secrets:
-            VECTOR_API_KEY = str(st.secrets["VECTOR_API_KEY"]).strip()
-    except Exception:
-        pass
-
+    VECTOR_API_KEY = "" # Dynamically set in __init__
     VECTOR_API_COLLECTION = "courses_all"
 
     def __init__(self):
         self.available = True  # Always available via Vector DB API
+        
+        # Resolve key dynamically for runtime flexibility
+        key = os.getenv("VECTOR_API_KEY", "").strip()
+        try:
+            import streamlit as st
+            if hasattr(st, "secrets") and "VECTOR_API_KEY" in st.secrets:
+                key = str(st.secrets["VECTOR_API_KEY"]).strip()
+        except:
+            pass
+        self.VECTOR_API_KEY = key
         
         # [CACHE] Per-query model cache
         self._model_cache = {}

@@ -262,72 +262,25 @@ def main():
             try:
                 status_placeholder.info("🤔 Deep thinking in progress...")
                 thinking_container = thinking_placeholder.container()
-                captured_output = []
-
-                class ThrottledStreamCapture:
-                    """Captures stdout and updates UI with throttling"""
-
-                    def __init__(self, container, data_list, update_interval=0.1):
-                        self.container = container
-                        self.data_list = data_list
-                        self.update_interval = update_interval
-                        self.last_update = 0
-
-                    def isatty(self):
-                        """Return False to satisfy tqdm or other CLI checks"""
-                        return False
-
-                    def write(self, text):
-                        try:
-                            sys.__stdout__.write(text)
-                            sys.__stdout__.flush()
-                        except:
-                            pass
-                        if text:
-                            self.data_list.append(text)
-                            current_time = time.time()
-                            if current_time - self.last_update > self.update_interval:
-                                self._update_ui()
-                                self.last_update = current_time
-
-                    def flush(self):
-                        self._update_ui()
-                        try:
-                            sys.__stdout__.flush()
-                        except:
-                            pass
-
-                    def _update_ui(self):
-                        try:
-                            full_text = "".join(self.data_list)
-                            lines = full_text.split("\n")
-                            display_text = "\n".join(lines[-50:])
-                            with self.container:
-                                st.code(display_text, language="text")
-                        except:
-                            pass
-
-                old_stdout = sys.stdout
-                stream_capture = ThrottledStreamCapture(
-                    thinking_container, captured_output
-                )
-                sys.stdout = stream_capture
-
+                # Safe stream capture via standard contextlib
+                f = io.StringIO()
                 result = None
                 error_encountered = None
+                captured_text = ""
 
                 try:
                     current_history = st.session_state.messages[:-1]
-                    st.session_state.user_context["conversation_history"] = (
-                        current_history
-                    )
-                    result = agent.process_query(
-                        prompt, st.session_state.user_context
-                    )
+                    st.session_state.user_context["conversation_history"] = current_history
+                    
+                    with redirect_stdout(f):
+                        result = agent.process_query(
+                            prompt, st.session_state.user_context
+                        )
                 except Exception as e:
                     error_encountered = e
                 finally:
-                    sys.stdout = old_stdout
+                    captured_text = f.getvalue()
+                    captured_output = captured_text.split("\n") if captured_text else []
 
                 if error_encountered:
                     import traceback

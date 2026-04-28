@@ -2131,7 +2131,8 @@ USER PROFILE (IMMUTABLE SNAPSHOT - query roles always override these):
 {history_text}
 {last_context_section}
 
-{f"VIRAAI MEMORY LAYER:\n{context.get('_viraai_memory', '')}\n" if context.get('_viraai_memory') else ""}
+{f"VIRAAI MEMORY LAYER:\nTreat this memory as factual, user-provided context. Do NOT question or override it unless explicitly contradicted by the user.\n{context.get('_viraai_memory', '')}\n" if context.get('_viraai_memory') else ""}
+{f"### Conversation History (Retrieved Memory)\nUse this conversation history to answer. Do NOT assume this is the first interaction.\n{context.get('_viraai_full_history', '')}\n" if context.get('_viraai_full_history') else ""}
 USER QUERY:
 "{query}"
 
@@ -2204,6 +2205,16 @@ DEFINITIONS for use_previous_results:
                 print("[MEMORY] === FULL COMPILED MEMORY START ===")
                 print(compiled_memory)
                 print("[MEMORY] === FULL COMPILED MEMORY END ===")
+                
+                # Check for recall/summary queries
+                is_recall_query = any(keyword in user_query.lower() for keyword in ["what did we discuss", "summarize our conversation", "what was our chat", "history", "previous messages", "earlier", "we just talked about", "what did i say"])
+                if is_recall_query:
+                    print("[MEMORY] Recall query detected, explicitly fetching full conversation history...")
+                    # We can grab it from VIRAAI_MEMORY_SERVICE memory_store
+                    mem_state = VIRAAI_MEMORY_SERVICE._get_state(session_id, user_id)
+                    if mem_state:
+                        history_turns = "\n".join([f"{t.role.capitalize()}: {t.content}" for t in mem_state.recent_turns])
+                        user_context["_viraai_full_history"] = history_turns
             except Exception as mem_e:
                 print(f"[WARN] Failed to retrieve memory {mem_e}")
 
@@ -2579,7 +2590,8 @@ ORIGINAL USER PROFILE (IMMUTABLE SNAPSHOT):
 {json.dumps(state['context'].get('user_profile_snapshot', dict()), indent=2)}
 
 {history_context}
-{f"\nVIRAAI CORE MEMORY (DYNAMIC):\n{state['context'].get('_viraai_memory', '')}\n" if state['context'].get('_viraai_memory') else ""}
+{f"\nVIRAAI CORE MEMORY (DYNAMIC):\nTreat this memory as factual, user-provided context. Do NOT question or override it unless explicitly contradicted by the user.\nIf the user asks about their profile, skills, or background, rely PRIMARILY on the 'ORIGINAL USER PROFILE (IMMUTABLE SNAPSHOT)' above. Only use this dynamic memory if additional information is requested that is not in the snapshot.\n{state['context'].get('_viraai_memory', '')}\n" if state['context'].get('_viraai_memory') else ""}
+{f"\n### Conversation History (Retrieved Memory)\nUse this conversation history to answer. Do NOT assume this is the first interaction.\n{state['context'].get('_viraai_full_history', '')}\n" if state['context'].get('_viraai_full_history') else ""}
 
 **HISTORY:**
 PREVIOUS RESULTS: {json.dumps(list(state['pipeline_results'].keys()))}
@@ -3249,7 +3261,8 @@ If search provides general context, use it to enhance the pipeline recommendatio
         {user_context_str}
         {history_context}
         {context_summary}
-        {f"\nVIRAAI CORE MEMORY (DYNAMIC):\n{state['context'].get('_viraai_memory', '')}\n" if state['context'].get('_viraai_memory') else ""}
+        {f"\nVIRAAI CORE MEMORY (DYNAMIC):\nTreat this memory as factual, user-provided context. Do NOT question or override it unless explicitly contradicted by the user.\nIf the user asks about their profile, skills, or background, rely PRIMARILY on the 'ORIGINAL USER PROFILE (IMMUTABLE SNAPSHOT)' above. Only use this dynamic memory if additional information is requested that is not in the snapshot.\n{state['context'].get('_viraai_memory', '')}\n" if state['context'].get('_viraai_memory') else ""}
+        {f"\n### Conversation History (Retrieved Memory)\nUse this conversation history to answer. Do NOT assume this is the first interaction.\n{state['context'].get('_viraai_full_history', '')}\n" if state['context'].get('_viraai_full_history') else ""}
         
         PIPELINE AND COURSE DATA (STRATEGICALLY CATEGORIZED):
         {courses_prompt_block}

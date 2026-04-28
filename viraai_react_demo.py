@@ -1830,6 +1830,29 @@ Respond in JSON:
         validated = JobMarketAnalysis(**raw)
         return validated.dict()
 
+    @staticmethod
+    def summary_retriever(session_id: str = "default_session", user_id: str = "default_user") -> Dict:
+        """
+        Retrieves the conversation summary and history directly from memory.
+        """
+        print("    [PIPE] Running summary_retriever...")
+        time.sleep(0.5)
+        
+        history_turns = ""
+        rolling_summary = ""
+        
+        if VIRAAI_MEMORY_SERVICE:
+            mem_state = VIRAAI_MEMORY_SERVICE._get_state(session_id, user_id)
+            if mem_state:
+                history_turns = "\n".join([f"{t.role.capitalize()}: {t.content}" for t in mem_state.recent_turns])
+                rolling_summary = mem_state.rolling_summary
+        
+        return {
+            "conversation_history": history_turns if history_turns else "No history available.",
+            "conversation_summary": rolling_summary if rolling_summary else "No summary available.",
+            "confidence": 0.95
+        }
+
 
 # ============================================================================
 # PIPELINE REGISTRY (Maps user queries to pipelines)
@@ -1955,6 +1978,17 @@ class PipelineRegistry:
                 "required_params": ["query", "missing_info_type"],
                 "optional_params": [],
                 "output_type": "json",
+            },
+            "summary_retriever": {
+                "function": DummyPipelines.summary_retriever,
+                "description": (
+                    "Retrieves the conversation history and a rolling summary of all past interactions. "
+                    "Use when: user asks to summarize the conversation, recall what was discussed, "
+                    "or review past context."
+                ),
+                "required_params": [],
+                "optional_params": ["session_id", "user_id"],
+                "output_type": "conversation_summary",
             },
         }
 
@@ -2820,6 +2854,11 @@ JSON format: {{"best_index": 0, "reason": "..."}}
                 if pipeline_name == "course_recommender" and "user_query" not in suggested_params:
                     suggested_params = dict(suggested_params)
                     suggested_params["user_query"] = state.get("query", "")
+                    
+                if pipeline_name == "summary_retriever":
+                    suggested_params = dict(suggested_params)
+                    suggested_params["session_id"] = state["context"].get("session_id", "default_session")
+                    suggested_params["user_id"] = state["context"].get("user_id", "default_user")
 
                 # Parameter resolution
                 final_params = self._build_pipeline_parameters(

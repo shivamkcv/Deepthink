@@ -2479,6 +2479,22 @@ DEFINITIONS for use_previous_results:
         final_ctx["_conversation_current_role"] = final_ctx.get("current_role")
         final_ctx["_conversation_target_role"] = final_ctx.get("target_role")
 
+        # ------------------------------------------------------------------ #
+        # SELF-MAINTAINING CONVERSATION HISTORY
+        # ------------------------------------------------------------------ #
+        # Always append the current exchange to conversation_history so the
+        # next turn has access to full conversation context regardless of
+        # whether the memory service works or summary_retriever is called.
+        conv_history = list(final_ctx.get("conversation_history", []))
+        conv_history.append({"role": "user", "content": user_query})
+        conv_history.append({"role": "assistant", "content": (answer_text or "")[:2000]})
+        final_ctx["conversation_history"] = conv_history
+        # Also rebuild _viraai_full_history as a fallback so the synthesis
+        # prompt's CRITICAL INSTRUCTION block always fires on the next turn.
+        final_ctx["_viraai_full_history"] = "\n".join(
+            [f"{msg['role'].capitalize()}: {msg['content']}" for msg in conv_history]
+        )
+
         if VIRAAI_MEMORY_SERVICE:
             print("[MEMORY] Updating episodic memory asynchronously...")
             try:
@@ -3288,8 +3304,17 @@ If search provides general context, use it to enhance the pipeline recommendatio
         )
 
         synthesis_prompt = f"""
-        You are an expert EdTech mentor on a learning platform. Using the following
-        pipeline results and search results (if available), create a comprehensive, actionable answer for the learner.
+        You are an expert EdTech mentor on a learning platform.
+        {f"""
+        ========== CONVERSATION HISTORY (AUTHORITATIVE) ==========
+        The following is the REAL history of your exchanges with this user.
+        If the user asks for a summary, gist, brief, or recap, you MUST use THIS data.
+        DO NOT say 'this is the start of our conversation' or 'we haven\'t discussed anything yet'.
+        
+        {state['context'].get('_viraai_full_history', '')}
+        ========== END CONVERSATION HISTORY ==========
+        """ if state['context'].get('_viraai_full_history') else ""}
+        Using the following pipeline results and search results (if available), create a comprehensive, actionable answer for the learner.
         {self._build_scope_and_filter_block(state)}
         {_char_limit_instruction}
         Focus on:
@@ -3326,13 +3351,12 @@ If search provides general context, use it to enhance the pipeline recommendatio
         {history_context}
         {context_summary}
         {f"\nVIRAAI CORE MEMORY (DYNAMIC):\nTreat this memory as factual, user-provided context. Do NOT question or override it unless explicitly contradicted by the user.\nIf the user asks about their profile, skills, or background, rely PRIMARILY on the 'ORIGINAL USER PROFILE (IMMUTABLE SNAPSHOT)' above. Only use this dynamic memory if additional information is requested that is not in the snapshot.\n{state['context'].get('_viraai_memory', '')}\n" if state['context'].get('_viraai_memory') else ""}
-        {f"\n### Conversation History (Retrieved Memory)\nCRITICAL INSTRUCTION: The following is the history of your conversation with the user. If they ask for a summary, gist, or recap, you MUST use this exact data to answer them. DO NOT claim 'this is the start of our conversation' or that there is 'no prior exchange' if there is text here!\n{state['context'].get('_viraai_full_history', '')}\n" if state['context'].get('_viraai_full_history') else ""}
         
         PIPELINE AND COURSE DATA (STRATEGICALLY CATEGORIZED):
         {courses_prompt_block}
         
         OTHER PIPELINE RESULTS (JSON):
-        {json.dumps({k:v for k,v in state['pipeline_results'].items() if k != "course_recommender" and k != "claude_fallback"}, indent=2)}
+        {json.dumps({k:v for k,v in state['pipeline_results'].items() if k not in ("course_recommender", "claude_fallback", "summary_retriever")}, indent=2)}
         {search_section}
         
         Create a clear, well-structured answer that:

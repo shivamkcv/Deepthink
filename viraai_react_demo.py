@@ -2093,11 +2093,10 @@ class ReActAgent:
 CATEGORIES:
 - "knowledge": Simple factual/informational question (What is X? Define Y? Tell me about Z?)
 - "pipeline": Needs career/course/skills analysis (career paths, course recommendations, skill gaps),
-             OR needs conversation recall/summary (summarize, what did we discuss, recap, review our chat)
+             OR needs conversational recall. Any request to summarize, brief, recap, review, remind, or fetch context about the ongoing interaction/discussion falls here.
 - "hybrid": Needs both factual info AND career analysis
 
-IMPORTANT: If the user is asking to recall, summarize, or review a previous conversation or interaction,
-that is ALWAYS "pipeline" — NOT "knowledge". Conversation recall requires the summary_retriever pipeline.
+IMPORTANT: If the user is asking to recall, summarize, or review a previous conversation or interaction (e.g., "what did we cover", "give me a brief", "recap our chat", "what did we talk about"), that is ALWAYS "pipeline" — NOT "knowledge". Conversation recall requires the summary_retriever pipeline.
 
 QUERY: {query}
 
@@ -2328,9 +2327,6 @@ DEFINITIONS for use_previous_results:
             kw in user_query.lower() for kw in [
                 "course", "skill", "learn", "career", "job", "salary", "role",
                 "path", "transition", "recommend", "market", "gap",
-                "discuss", "discussed", "discussion", "summary", "summarise", "summarize",
-                "conversation", "recap", "review", "talked", "chatted", "covered",
-                "went over", "brief", "gist",
                 "my profile", "my role", "my skills", "tell me about me"
             ]
         )

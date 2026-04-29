@@ -2328,8 +2328,9 @@ DEFINITIONS for use_previous_results:
             kw in user_query.lower() for kw in [
                 "course", "skill", "learn", "career", "job", "salary", "role",
                 "path", "transition", "recommend", "market", "gap",
-                "discuss", "summary", "summarise", "summarize", "conversation",
-                "recap", "review", "talked", "chatted", "covered", "went over",
+                "discuss", "discussed", "discussion", "summary", "summarise", "summarize",
+                "conversation", "recap", "review", "talked", "chatted", "covered",
+                "went over", "brief", "gist",
                 "my profile", "my role", "my skills", "tell me about me"
             ]
         )
@@ -2883,6 +2884,15 @@ JSON format: {{"best_index": 0, "reason": "..."}}
 
                 METRICS_COLLECTOR.record_pipeline(pipeline_name, latency)
                 state["pipeline_results"][pipeline_name] = result
+
+                # After summary_retriever runs, promote its conversation_history
+                # into the state context so the synthesis prompt's dedicated
+                # CRITICAL INSTRUCTION block picks it up prominently.
+                if pipeline_name == "summary_retriever" and isinstance(result, dict):
+                    conv_hist = result.get("conversation_history", "")
+                    if conv_hist and conv_hist != "No history available.":
+                        state["context"]["_viraai_full_history"] = conv_hist
+                        print(f"   [MEMORY] Promoted summary_retriever history into context ({len(conv_hist)} chars)")
 
                 return {
                     "pipeline": pipeline_name,

@@ -1983,8 +1983,12 @@ class PipelineRegistry:
                 "function": DummyPipelines.summary_retriever,
                 "description": (
                     "Retrieves the conversation history and a rolling summary of all past interactions. "
-                    "Use when: user asks to summarize the conversation, recall what was discussed, "
-                    "or review past context."
+                    "Use when: user asks to summarize, recap, or review the conversation; "
+                    "asks what was discussed, what we talked about, what we covered, or what happened so far; "
+                    "asks for a summary or partial summary of any previous exchange; "
+                    "asks 'what do you know about me' based on conversation context; "
+                    "or references previous interactions in any way. "
+                    "This pipeline MUST be called for ANY query involving conversation recall or history review."
                 ),
                 "required_params": [],
                 "optional_params": ["session_id", "user_id"],
@@ -2088,8 +2092,12 @@ class ReActAgent:
 
 CATEGORIES:
 - "knowledge": Simple factual/informational question (What is X? Define Y? Tell me about Z?)
-- "pipeline": Needs career/course/skills analysis (career paths, course recommendations, skill gaps)
+- "pipeline": Needs career/course/skills analysis (career paths, course recommendations, skill gaps),
+             OR needs conversation recall/summary (summarize, what did we discuss, recap, review our chat)
 - "hybrid": Needs both factual info AND career analysis
+
+IMPORTANT: If the user is asking to recall, summarize, or review a previous conversation or interaction,
+that is ALWAYS "pipeline" — NOT "knowledge". Conversation recall requires the summary_retriever pipeline.
 
 QUERY: {query}
 
@@ -2240,15 +2248,13 @@ DEFINITIONS for use_previous_results:
                 print(compiled_memory)
                 print("[MEMORY] === FULL COMPILED MEMORY END ===")
                 
-                # Check for recall/summary queries
-                is_recall_query = any(keyword in user_query.lower() for keyword in ["what did we discuss", "summarize our conversation", "what was our chat", "history", "previous messages", "earlier", "we just talked about", "what did i say"])
-                if is_recall_query:
-                    print("[MEMORY] Recall query detected, explicitly fetching full conversation history...")
-                    # We can grab it from VIRAAI_MEMORY_SERVICE memory_store
+                # Always inject full conversation history when memory has turns
+                if VIRAAI_MEMORY_SERVICE:
                     mem_state = VIRAAI_MEMORY_SERVICE._get_state(session_id, user_id)
-                    if mem_state:
+                    if mem_state and mem_state.recent_turns:
                         history_turns = "\n".join([f"{t.role.capitalize()}: {t.content}" for t in mem_state.recent_turns])
                         user_context["_viraai_full_history"] = history_turns
+                        print(f"[MEMORY] Injected {len(mem_state.recent_turns)} conversation turns into context.")
             except Exception as mem_e:
                 print(f"[WARN] Failed to retrieve memory {mem_e}")
 
@@ -2321,7 +2327,10 @@ DEFINITIONS for use_previous_results:
         _is_edtech_knowledge = any(
             kw in user_query.lower() for kw in [
                 "course", "skill", "learn", "career", "job", "salary", "role",
-                "path", "transition", "recommend", "market", "gap"
+                "path", "transition", "recommend", "market", "gap",
+                "discuss", "summary", "summarise", "summarize", "conversation",
+                "recap", "review", "talked", "chatted", "covered", "went over",
+                "my profile", "my role", "my skills", "tell me about me"
             ]
         )
         if query_type == "knowledge" and search_results and search_results.get("found") and not _is_edtech_knowledge:
@@ -2579,16 +2588,16 @@ DEFINITIONS for use_previous_results:
             )
 
         if is_simple:
-            # Minimal context for simple queries to prevent "over-thinking" based on profile
-            # But keep history if it helps resolve "it", "that", etc. (though _parse_intent should handle that)
+            # Include essential profile fields so the planner always knows user context
+            # even for simple profile-retrieval queries like "tell me my role"
             user_profile_context = {
                 "user_id": state['context'].get('user_id'),
                 "current_role": state['context'].get('current_role'),
-                "target_role": state['context'].get('target_role')
+                "target_role": state['context'].get('target_role'),
+                "current_skills": state['context'].get('current_skills'),
+                "experience_level": state['context'].get('experience_level'),
+                "user_profile_snapshot": state['context'].get('user_profile_snapshot', {})
             }
-            # Only add specific fields if relevant to query
-            if "skill" in state['query'].lower():
-                user_profile_context["current_skills"] = state['context'].get('current_skills')
 
         reasoning_prompt = f"""
 You are ViraAI's EdTech reasoning engine. You help learners on an education platform.
@@ -2616,6 +2625,8 @@ You are in "deep thinking" mode.
 - **Check for "Hallucinations"**: If `course_recommender` uses "llm_fallback", be transparent.
 - **Ask for Clarification**: If the query is truly ambiguous (e.g., "I want to learn"), call `ask_user`.
 - **Pipeline Validation**: Verify that you have selected the best possible pipeline combination. Do not skip any necessary pipeline.
+- **CONVERSATION RECALL RULE**: If the user is asking about what was discussed, requesting a summary, gist, recap,
+  or review of previous interactions, you MUST explicitly output an action to call the `summary_retriever` pipeline. This applies to ALL queries, regardless of complexity. Do NOT try to answer from your context alone.
 
 **CONTEXT:**
 USER QUERY: {state['query']}
@@ -3218,7 +3229,11 @@ If search provides general context, use it to enhance the pipeline recommendatio
             simple_context = {
                 "user_id": state['context'].get('user_id'),
                 "current_role": state['context'].get('current_role'),
-                "target_role": state['context'].get('target_role')
+                "target_role": state['context'].get('target_role'),
+                "current_skills": state['context'].get('current_skills'),
+                "experience_level": state['context'].get('experience_level'),
+                "user_profile_snapshot": state['context'].get('user_profile_snapshot', {}),
+                "conversation_history_available": "YES - see Retrieve Memory and Pipeline Results below" if state['context'].get('_viraai_full_history') else "NO"
             }
             user_context_str = json.dumps(simple_context, indent=2)
         cp_result = state["pipeline_results"].get("context_preserver", {})
@@ -3301,7 +3316,7 @@ If search provides general context, use it to enhance the pipeline recommendatio
         {history_context}
         {context_summary}
         {f"\nVIRAAI CORE MEMORY (DYNAMIC):\nTreat this memory as factual, user-provided context. Do NOT question or override it unless explicitly contradicted by the user.\nIf the user asks about their profile, skills, or background, rely PRIMARILY on the 'ORIGINAL USER PROFILE (IMMUTABLE SNAPSHOT)' above. Only use this dynamic memory if additional information is requested that is not in the snapshot.\n{state['context'].get('_viraai_memory', '')}\n" if state['context'].get('_viraai_memory') else ""}
-        {f"\n### Conversation History (Retrieved Memory)\nUse this conversation history to answer. Do NOT assume this is the first interaction.\n{state['context'].get('_viraai_full_history', '')}\n" if state['context'].get('_viraai_full_history') else ""}
+        {f"\n### Conversation History (Retrieved Memory)\nCRITICAL INSTRUCTION: The following is the history of your conversation with the user. If they ask for a summary, gist, or recap, you MUST use this exact data to answer them. DO NOT claim 'this is the start of our conversation' or that there is 'no prior exchange' if there is text here!\n{state['context'].get('_viraai_full_history', '')}\n" if state['context'].get('_viraai_full_history') else ""}
         
         PIPELINE AND COURSE DATA (STRATEGICALLY CATEGORIZED):
         {courses_prompt_block}
@@ -3366,11 +3381,19 @@ If search provides general context, use it to enhance the pipeline recommendatio
             You are a helpful editor. Briefly review this answer.
             
             USER QUERY: {state['query']}
+            
+            TRUSTED USER PROFILE (SOURCE OF TRUTH — do NOT flag this data as hallucinated or fabricated):
+            {json.dumps(state['context'].get('user_profile_snapshot', dict()), indent=2)}
+            
             ANSWER:
             {answer}
             
-            If the answer is accurate and relevant, return it unchanged.
-            Only refine if there are major errors or hallucinations.
+            IMPORTANT: The user profile above is verified, real data provided by the user themselves.
+            If the answer references the user's role, skills, experience, or target role from the profile above,
+            that is CORRECT and TRUSTED — do NOT remove, question, or flag it as assumed or hallucinated.
+            
+            Only refine if there are genuinely wrong facts unrelated to the user's own profile data.
+            If the answer correctly uses the profile data to respond, return it UNCHANGED.
             
             Respond in STRICT JSON:
             {{
@@ -3387,12 +3410,16 @@ If search provides general context, use it to enhance the pipeline recommendatio
             CURRENT ANSWER:
             {answer}
             
+            TRUSTED USER PROFILE (SOURCE OF TRUTH — do NOT flag this data as hallucinated or fabricated):
+            {json.dumps(state['context'].get('user_profile_snapshot', dict()), indent=2)}
+            
             CONTEXT:
             {json.dumps(state['context'], indent=2)}
             
             CRITIQUE INSTRUCTIONS:
             1. Check if the answer directly addresses the user's intent.
-            2. Check for hallucinations or unsupported claims.
+            2. Check for hallucinations or unsupported claims — BUT any data matching the TRUSTED USER PROFILE
+               above (role, skills, experience, target role, name) is REAL and must NOT be flagged.
             3. Ensure tone is helpful and professional.
             4. Verify logical flow and completeness for complex requests.
             
@@ -3466,9 +3493,16 @@ If search provides general context, use it to enhance the pipeline recommendatio
             USER QUERY: {state['query']}
             ANSWER: {state['current_answer']}
             
+            TRUSTED USER PROFILE (SOURCE OF TRUTH):
+            {json.dumps(state['context'].get('user_profile_snapshot', dict()), indent=2)}
+            
+            IMPORTANT: Any information in the answer that matches the TRUSTED USER PROFILE above
+            (such as the user's role, skills, experience, or target role) is REAL, VERIFIED data —
+            do NOT flag it as fabricated or contradictory. It was provided by the user themselves.
+            
             ONLY FAIL (scores below 0.7) if:
             - The answer is completely irrelevant to the query
-            - The answer contains clearly fabricated or contradictory information
+            - The answer contains clearly fabricated information that does NOT come from the user profile above
             - The answer fails to address the core question at all
             
             Otherwise, rate HIGH (0.85-0.95). Do NOT penalize for style, length, or minor omissions.
@@ -3495,12 +3529,18 @@ If search provides general context, use it to enhance the pipeline recommendatio
             USER QUERY: {state['query']}
             ANSWER: {state['current_answer']}
             
+            TRUSTED USER PROFILE (SOURCE OF TRUTH):
+            {json.dumps(state['context'].get('user_profile_snapshot', dict()), indent=2)}
+            
             AVAILABLE PIPELINE RESULTS (JSON):
             {json.dumps(state['pipeline_results'], indent=2)}
             
+            IMPORTANT: Any information in the answer that matches the TRUSTED USER PROFILE above
+            is REAL, VERIFIED data provided by the user — do NOT flag it as hallucinated or fabricated.
+            
             PASS the answer (scores 0.82+) UNLESS any of these critical issues exist:
             1. RELEVANCE FAILURE: Answer does not address the user's actual question
-            2. HALLUCINATION: Answer fabricates data not supported by pipeline results or memory
+            2. HALLUCINATION: Answer fabricates data not supported by pipeline results, memory, OR the user profile above
             3. COVERAGE GAP: Answer ignores major pipeline data that directly answers the query
             4. CONTEXT MISMATCH: Answer contradicts the user's stated role, skills, or goals
             
@@ -3509,6 +3549,7 @@ If search provides general context, use it to enhance the pipeline recommendatio
             - Not mentioning every single pipeline result
             - Length being slightly short or long
             - Missing supplementary details that weren't asked for
+            - Using profile data that matches the TRUSTED USER PROFILE
             
             Respond in STRICT JSON:
             {{
